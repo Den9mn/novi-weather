@@ -120,30 +120,28 @@ exports.handler = async (event) => {
       await sleep(1200);
     }
 
-    // 5) Fetch final assistant message
-    const listRes = await fetch(
-      `${OPENAI_API}/threads/${thread.id}/messages?limit=10&order=desc`,
-      { headers: HEADERS(OPENAI_KEY) }
-    );
-    if (!listRes.ok) throw new Error(`List messages failed: ${listRes.status}`);
-    const msgList = await listRes.json();
+// 5) Fetch final assistant message
+console.log("Fetching final messages for thread:", thread.id);
+const listRes = await fetch(
+  `${OPENAI_API}/threads/${thread.id}/messages?limit=10&order=desc`,
+  { headers: HEADERS(OPENAI_KEY) }
+);
 
-    // Get first text block
-    const first = msgList?.data?.[0];
-    let reply = "No reply.";
-    if (first?.content?.[0]?.type === "text") {
-      reply = first.content[0].text.value;
-    }
+if (!listRes.ok) throw new Error(`List messages failed: ${listRes.status}`);
 
-    return {
-      statusCode: 200,
-      body: JSON.stringify({ reply }),
-    };
-  } catch (err) {
-    console.error("Function error:", err);
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ error: err.message }),
-    };
+const msgList = await listRes.json();
+console.log("Messages JSON:", JSON.stringify(msgList, null, 2));
+
+let reply = "No reply received from assistant.";
+const first = msgList?.data?.[0];
+if (first?.content?.[0]?.type === "text") {
+  reply = first.content[0].text.value;
+}
+console.log("Final reply:", reply);
+
+return {
+  statusCode: 200,
+  body: JSON.stringify({ reply }),
+};
   }
 };
