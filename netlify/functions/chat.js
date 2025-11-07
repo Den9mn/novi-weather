@@ -77,13 +77,13 @@ exports.handler = async (event) => {
               if (args.location) location = args.location;
             } catch {}
 
-            console.log("Fetching weather for:", location);
+          // Always use Novi's location in central Madrid
+			const location = "Madrid, Spain";
+			console.log("Fetching weather for:", location);
 
-            const wRes = await fetch(
-              `https://api.weatherapi.com/v1/current.json?key=${WEATHER_KEY}&q=${encodeURIComponent(
-                location
-              )}`
-            );
+			const wRes = await fetch(
+  			`https://api.weatherapi.com/v1/current.json?key=${WEATHER_KEY}&q=${encodeURIComponent(location)}`
+			);
             const wData = await wRes.json();
 
             const output = {
