@@ -1,30 +1,55 @@
 // netlify/functions/get_events.js
+//
+// Reads events from Google Sheets CSV,
+// normalizes date/time formats,
+// filters future events,
+// and returns only the soonest one per event name.
 
-function parseDate(dateStr, timeStr) {
-  // If already ISO (YYYY-MM-DD)
+function normalizeDate(dateStr, timeStr) {
+  // Case 1: YYYY-MM-DD
   if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-    return new Date(`${dateStr}T${timeStr || "00:00"}`);
+    return new Date(`${dateStr}T${normalizeTime(timeStr)}`);
   }
 
-  // If DD/MM/YYYY
+  // Case 2: MM/DD/YYYY (Google's US export)
   if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(dateStr)) {
-    const [day, month, year] = dateStr.split("/");
-    return new Date(`${year}-${month}-${day}T${timeStr || "00:00"}`);
+    const [month, day, year] = dateStr.split("/");
+    return new Date(`${year}-${month.padStart(2,"0")}-${day.padStart(2,"0")}T${normalizeTime(timeStr)}`);
   }
 
-  // If something else appears, let JS try
-  return new Date(`${dateStr}T${timeStr || "00:00"}`);
+  return new Date(NaN); // invalid
+}
+
+function normalizeTime(timeStr) {
+  if (!timeStr) return "00:00";
+
+  // Case 1: 20:00 or 20:00:00 → keep 24h
+  if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(timeStr)) {
+    return timeStr;
+  }
+
+  // Case 2: 8:00 PM → convert to 24h
+  const pmMatch = timeStr.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(PM|AM)$/i);
+  if (pmMatch) {
+    let [_, h, m, suffix] = pmMatch;
+    h = parseInt(h);
+    if (suffix.toUpperCase() === "PM" && h !== 12) h += 12;
+    if (suffix.toUpperCase() === "AM" && h === 12) h = 0;
+    return `${String(h).padStart(2,"0")}:${m}`;
+  }
+
+  return "00:00";
 }
 
 export const handler = async () => {
   try {
     const sheetURL =
-      "https://docs.google.com/spreadsheets/d/e/2PACX-1vTjeDyrQ8IFSU42awHxOOAWYVkf-0xdm08Qf45xz1d3HcmBoINj04y0xmwW59LH1LSKqbXP0yhMCXfV/pub?gid=1755129031&single=true&output=csv";
+      "https://docs.google.com/spreadsheets/d/e/2PACX-1vTksE-wWIJzwRpabv-AvuVoyjiws4r70P9bs9hLnwOoFncy1kvZj6TYkvpxxXB18sf-7cBoZ3RmMIW1/pub?output=csv";
 
     const res = await fetch(sheetURL);
     const csv = await res.text();
 
-    const rows = csv.split("\n").map((r) => r.split(","));
+    const rows = csv.trim().split("\n").map((line) => line.split(","));
     const [header, ...entries] = rows;
 
     const now = new Date();
@@ -38,17 +63,23 @@ export const handler = async () => {
 
         if (!name || !dateStr) return null;
 
-        const datetime = parseDate(dateStr, timeStr);
+        const datetime = normalizeDate(dateStr, timeStr);
         if (isNaN(datetime)) return null;
 
-        return { name, description, date: dateStr, time: timeStr, datetime };
+        return {
+          name,
+          description,
+          date: dateStr,
+          time: timeStr,
+          datetime,
+        };
       })
       .filter(Boolean);
 
     // Only future events
     const future = parsed.filter((ev) => ev.datetime >= now);
 
-    // If repeating name, keep nearest
+    // For repeating events: keep next instance only
     const soonest = {};
     for (const ev of future) {
       if (!soonest[ev.name] || ev.datetime < soonest[ev.name].datetime) {
@@ -58,11 +89,11 @@ export const handler = async () => {
 
     const events = Object.values(soonest)
       .sort((a, b) => a.datetime - b.datetime)
-      .map((ev) => ({
-        name: ev.name,
-        description: ev.description,
-        date: ev.date,
-        time: ev.time,
+      .map(({ name, description, date, time }) => ({
+        name,
+        description,
+        date,
+        time,
       }));
 
     return {
